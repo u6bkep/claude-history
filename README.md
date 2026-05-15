@@ -35,12 +35,14 @@ Arguments:
   [PATTERN]  Substring filter (case-insensitive)
 
 Options:
-  -n, --tail <N>   Show only last N entries
-  -c, --cwd        Include cwd column
-  -r, --reverse    Newest first
-  -u, --unique     Deduplicate identical commands (keeps most recent)
-  -0, --null       Print commands NUL-separated, no formatting (for piping)
-  -h, --help       Print help
+  -n, --tail <N>          Show only last N entries
+  -c, --cwd               Include cwd column
+  -r, --reverse           Newest first
+  -u, --unique            Deduplicate identical commands (keeps most recent)
+  -0, --null              Print commands NUL-separated, no formatting (for piping)
+      --claude-dir <DIR>  Path to the Claude config directory (containing `projects/`).
+                          Defaults to $CLAUDE_CONFIG_DIR if set, otherwise ~/.claude.
+  -h, --help              Print help
 ```
 
 ### Examples
@@ -61,6 +63,15 @@ Last 20 unique commands, newest first, with the cwd they ran in:
 
 ```sh
 claude-history -u -n 20 -r -c
+```
+
+Point at a non-default Claude config dir (matches Claude Code's own
+`CLAUDE_CONFIG_DIR` convention):
+
+```sh
+claude-history --claude-dir ~/work/.claude
+# or
+CLAUDE_CONFIG_DIR=~/work/.claude claude-history
 ```
 
 Re-run the most recent matching command. The `-0` flag emits NUL-separated

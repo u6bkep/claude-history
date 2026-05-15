@@ -33,6 +33,11 @@ struct Args {
     /// Print commands NUL-separated, no formatting (for piping)
     #[arg(short = '0', long = "null")]
     null: bool,
+
+    /// Path to the Claude config directory (containing `projects/`).
+    /// Defaults to $CLAUDE_CONFIG_DIR if set, otherwise ~/.claude.
+    #[arg(long = "claude-dir", value_name = "DIR", env = "CLAUDE_CONFIG_DIR")]
+    claude_dir: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -93,7 +98,7 @@ fn process_file(path: &std::path::Path) -> Vec<Entry> {
         let Some(msg) = rec.message else { continue };
         let Some(content) = msg.content else { continue };
         for block in content {
-            if block.ty.as_deref() != Some("tool_use") || block.name.as_deref() != Some("Bash") {
+            if block.ty != Some("tool_use") || block.name != Some("Bash") {
                 continue;
             }
             let Some(input) = block.input else { continue };
@@ -125,8 +130,13 @@ fn fmt_ts(ts: &str) -> String {
 fn main() -> ExitCode {
     let args = Args::parse();
 
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-    let projects = home.join(".claude").join("projects");
+    let claude_dir = args.claude_dir.clone().unwrap_or_else(|| {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        home.join(".claude")
+    });
+    let projects = claude_dir.join("projects");
     if !projects.is_dir() {
         eprintln!("claude-history: not found: {}", projects.display());
         return ExitCode::from(1);
@@ -201,7 +211,15 @@ fn main() -> ExitCode {
         let ts = fmt_ts(&e.ts);
         let cmd: String = e.cmd.replace('\n', " \\n ");
         let res = if args.cwd {
-            writeln!(out, "{:>width$}  {}  {}  {}", i + 1, ts, e.cwd, cmd, width = width)
+            writeln!(
+                out,
+                "{:>width$}  {}  {}  {}",
+                i + 1,
+                ts,
+                e.cwd,
+                cmd,
+                width = width
+            )
         } else {
             writeln!(out, "{:>width$}  {}  {}", i + 1, ts, cmd, width = width)
         };
