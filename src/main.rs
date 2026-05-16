@@ -1,12 +1,19 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use rayon::prelude::*;
 use serde::Deserialize;
 use walkdir::WalkDir;
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum ColorMode {
+    Auto,
+    Always,
+    Never,
+}
 
 #[derive(Parser, Debug)]
 #[command(about = "Show Bash commands run by Claude Code (numbered, oldest first).")]
@@ -38,6 +45,64 @@ struct Args {
     /// Defaults to $CLAUDE_CONFIG_DIR if set, otherwise ~/.claude.
     #[arg(long = "claude-dir", value_name = "DIR", env = "CLAUDE_CONFIG_DIR")]
     claude_dir: Option<PathBuf>,
+
+    /// When to colorize output: auto (TTY only), always, or never.
+    /// Honors NO_COLOR in `auto` mode.
+    #[arg(long = "color", value_enum, default_value = "auto", value_name = "WHEN")]
+    color: ColorMode,
+}
+
+const C_NUM: &str = "\x1b[2m"; // dim
+const C_TS: &str = "\x1b[32m"; // green
+const C_CWD: &str = "\x1b[34m"; // blue
+const C_MATCH: &str = "\x1b[1;31m"; // bold red (matches grep)
+const RESET: &str = "\x1b[0m";
+
+fn use_color(mode: ColorMode) -> bool {
+    match mode {
+        ColorMode::Always => true,
+        ColorMode::Never => false,
+        ColorMode::Auto => {
+            if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+                return false;
+            }
+            io::stdout().is_terminal()
+        }
+    }
+}
+
+/// Wrap every ASCII-case-insensitive occurrence of `needle` in `text` with
+/// `on`/`off`. Skips matches that don't fall on UTF-8 char boundaries.
+fn highlight(text: &str, needle: &str, on: &str, off: &str) -> String {
+    if needle.is_empty() {
+        return text.to_owned();
+    }
+    let n = needle.as_bytes();
+    let nlen = n.len();
+    let bytes = text.as_bytes();
+    if bytes.len() < nlen {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut i = 0;
+    let mut last = 0;
+    while i + nlen <= bytes.len() {
+        if bytes[i..i + nlen].eq_ignore_ascii_case(n)
+            && text.is_char_boundary(i)
+            && text.is_char_boundary(i + nlen)
+        {
+            out.push_str(&text[last..i]);
+            out.push_str(on);
+            out.push_str(&text[i..i + nlen]);
+            out.push_str(off);
+            i += nlen;
+            last = i;
+        } else {
+            i += 1;
+        }
+    }
+    out.push_str(&text[last..]);
+    out
 }
 
 #[derive(Deserialize)]
@@ -206,22 +271,29 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    let color = use_color(args.color);
+    let (c_num, c_ts, c_cwd, c_match, reset) = if color {
+        (C_NUM, C_TS, C_CWD, C_MATCH, RESET)
+    } else {
+        ("", "", "", "", "")
+    };
+
     let width = entries.len().to_string().len();
     for (i, e) in entries.iter().enumerate() {
         let ts = fmt_ts(&e.ts);
-        let cmd: String = e.cmd.replace('\n', " \\n ");
+        let mut cmd: String = e.cmd.replace('\n', " \\n ");
+        if color && let Some(pat) = &args.pattern {
+            cmd = highlight(&cmd, pat, c_match, reset);
+        }
+        let n = i + 1;
         let res = if args.cwd {
             writeln!(
                 out,
-                "{:>width$}  {}  {}  {}",
-                i + 1,
-                ts,
-                e.cwd,
-                cmd,
-                width = width
+                "{c_num}{n:>width$}{reset}  {c_ts}{ts}{reset}  {c_cwd}{cwd}{reset}  {cmd}",
+                cwd = e.cwd,
             )
         } else {
-            writeln!(out, "{:>width$}  {}  {}", i + 1, ts, cmd, width = width)
+            writeln!(out, "{c_num}{n:>width$}{reset}  {c_ts}{ts}{reset}  {cmd}")
         };
         if res.is_err() {
             break;

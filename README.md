@@ -42,6 +42,10 @@ Options:
   -0, --null              Print commands NUL-separated, no formatting (for piping)
       --claude-dir <DIR>  Path to the Claude config directory (containing `projects/`).
                           Defaults to $CLAUDE_CONFIG_DIR if set, otherwise ~/.claude.
+      --color <WHEN>      Colorize output: `auto` (default, only when stdout is a
+                          TTY and `NO_COLOR` is unset), `always`, or `never`.
+                          Line numbers, timestamps, and the cwd column are each
+                          tinted, and matches of `PATTERN` are highlighted.
   -h, --help              Print help
 ```
 
